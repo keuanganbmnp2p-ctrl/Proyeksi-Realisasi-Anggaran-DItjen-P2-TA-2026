@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dasbor Proyeksi vs Realisasi Anggaran TA 2026 - Ditjen P2</title>
+<style>
+:root{--bg:#f4f9f9;--card:#fff;--tx:#12302f;--mut:#5b7776;--pri:#0b7a75;--acc:#e8871e;--line:#d6e6e5;--ok:#1a8f4c;--wn:#c98a00;--bad:#c8372d}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1b1b;--card:#152626;--tx:#e3f1f0;--mut:#8fb0ae;--line:#264040;--pri:#2fb5ae}}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--tx);font-size:14px}
+header{background:var(--pri);color:#fff;padding:16px 20px}h1{margin:0;font-size:18px}header p{margin:4px 0 0;font-size:12px;opacity:.9}
+main{max-width:1200px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.row label{font-size:11px;color:var(--mut);display:flex;flex-direction:column;gap:3px;flex:1;min-width:150px}
+select,button{font:inherit;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--tx)}button{cursor:pointer;background:var(--pri);color:#fff;border:0}
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px}
+.kpi div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.kpi small{color:var(--mut);font-size:11px}.kpi b{display:block;font-size:20px;margin:4px 0}.kpi span{font-size:11px;color:var(--mut)}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:760px}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{font-size:11px;color:var(--mut)}th:first-child,td:first-child{text-align:left}td.l{cursor:pointer;color:var(--pri);white-space:normal}tr.now td{background:rgba(232,135,30,.14)}
+.b{padding:2px 8px;border-radius:10px;font-size:11px;color:#fff}.ok{background:var(--ok)}.wn{background:var(--wn)}.bad{background:var(--bad)}.na{background:var(--mut)}
+#msg{padding:10px;border-radius:8px;background:#fff6dd;color:#5c4400;margin-bottom:14px;display:none;font-size:12px}
+.lg span{margin-right:14px;font-size:12px}.lg i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:4px}h2{font-size:14px;margin:0 0 8px}
+</style></head><body>
+<header><h1>Dasbor Proyeksi vs Realisasi Anggaran TA 2026</h1>
+<p>Ditjen P2 Kemenkes RI - realisasi s.d. 30 September dan proyeksi per periode s.d. 31 Desember 2026 <span id="upd"></span></p></header>
+<main>
+<div id="msg"></div>
+<div class="card row">
+<label>Satker<select id="fs"></select></label><label>Kegiatan<select id="fk"></select></label>
+<label>Sumber Dana<select id="fd"></select></label><label>Jenis Belanja<select id="fj"></select></label>
+<button id="rs">Reset</button><button id="rf">Muat ulang</button></div>
+<div class="kpi" id="kpi"></div>
+<div class="card"><h2>Kurva kumulatif (% terhadap pagu)</h2>
+<div class="lg"><span><i style="background:var(--pri)"></i>Proyeksi</span><span><i style="background:var(--acc)"></i>Realisasi</span></div>
+<svg id="ch" viewBox="0 0 900 300" width="100%"></svg></div>
+<div class="card"><h2>Rincian per periode <small style="font-weight:normal;color:var(--mut)">(baris oranye = periode berjalan)</small></h2>
+<div class="tw"><table id="tp"></table></div></div>
+<div class="card"><div class="row" style="margin-bottom:8px"><label style="max-width:220px">Kelompokkan per<select id="gb">
+<option value="sat">Satker</option><option value="keg">Kegiatan</option><option value="sd">Sumber Dana</option><option value="jb">Jenis Belanja</option></select></label>
+<span style="font-size:11px;color:var(--mut)">Klik nama pada tabel untuk memfilter.</span></div>
+<div class="tw"><table id="tb"></table></div></div>
+<p style="font-size:11px;color:var(--mut)">Kumulatif = realisasi s.d. 30 Sep + jumlah periode berjalan. Status (capaian terhadap proyeksi): 100% ke atas Sesuai, 90-99% Waspada, di bawah 90% Tertinggal.</p>
+</main>
+<script>
+// ===== PENGATURAN =====
+const API_URL = "https://script.google.com/macros/s/AKfycbyYLMIjJQr07WsDomFn8Rja7bgUgH7He3wYfOAkx7YvP7K6OeZpGRLaqnPSmS4E-vi5WA/exec"; // berakhiran /exec
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
+const TH_OK = 100, TH_WN = 90;
+const JB = {51:"51 Belanja Pegawai",52:"52 Belanja Barang",53:"53 Belanja Modal"};
+// =======================
+const $=id=>document.getElementById(id);
+const fmt=n=>new Intl.NumberFormat('id-ID').format(Math.round(n));
+const fm=n=>{const a=Math.abs(n);return a>=1e12?(n/1e12).toFixed(2)+' T':a>=1e9?(n/1e9).toFixed(2)+' M':a>=1e6?(n/1e6).toFixed(1)+' jt':fmt(n)};
+const pc=(a,b)=>b>0?a/b*100:0;
+let D=null,ROWS=[],PER=[];
+function msg(t){const m=$('msg');m.style.display=t?'block':'none';m.textContent=t||''}
+function lab(k,v){return k==='sat'?((D.sat[v]||{}).s||v):k==='jb'?(JB[v]||v):v}
+const rank=v=>v==='RM'?0:v==='PNBP'?1:2;
+function load(refresh){
+  if(/PASTE_URL/.test(API_URL)){msg('API_URL belum diisi. Tempel URL Web App Apps Script pada bagian PENGATURAN di index.html.');return}
+  fetch(API_URL+(refresh?'?refresh=1':'')).then(r=>r.json()).then(j=>{
+    if(!j.ok)throw new Error(j.error||'Respons tidak valid');
+    D=j;ROWS=j.rows;PER=j.periods;
+    const n=ROWS.filter(x=>x.p.some(v=>v>0)).length,t=[];
+    if(n<ROWS.length)t.push('Proyeksi baru terisi pada '+n+' dari '+ROWS.length+' baris.');
+    if(!j.hasReal)t.push('Sheet "Realisasi" belum ada/terbaca, garis realisasi belum tampil.');
+    msg(t.join(' '));
+    $('upd').textContent=' | Data diambil: '+new Date(j.generated).toLocaleString('id-ID');
+    init();
+  }).catch(e=>msg('Gagal memuat data: '+e.message))
+}
+function init(){
+  const keep={fs:$('fs').value,fk:$('fk').value,fd:$('fd').value,fj:$('fj').value};
+  const f={fs:'sat',fk:'keg',fd:'sd',fj:'jb'},T={fs:'Semua satker',fk:'Semua kegiatan',fd:'Semua sumber dana',fj:'Semua jenis belanja'};
+  for(const id in f){const k=f[id];let vs=[...new Set(ROWS.map(x=>x[k]))];
+    vs=k==='sd'?vs.sort((a,b)=>rank(a)-rank(b)||a.localeCompare(b)):vs.sort((a,b)=>lab(k,a).localeCompare(lab(k,b)));
+    $(id).innerHTML='<option value="">'+T[id]+'</option>'+vs.map(v=>'<option value="'+v+'">'+lab(k,v)+'</option>').join('');
+    if(vs.includes(keep[id]))$(id).value=keep[id]}
+  render();
+}
+function agg(rs){
+  const n=PER.length,o={pagu:0,base:0,p:Array(n).fill(0),r:Array(n).fill(0),has:Array(n).fill(false),last:-1};
+  rs.forEach(x=>{o.pagu+=x.pagu;o.base+=x.base;x.p.forEach((v,i)=>o.p[i]+=v);
+    if(x.r)x.r.forEach((v,i)=>{if(v!=null){o.r[i]+=v;o.has[i]=true;if(i>o.last)o.last=i}})});
+  o.pc=[o.base];o.rc=[o.base];
+  for(let i=0;i<n;i++){o.pc.push(o.pc[i]+o.p[i]);o.rc.push(i<=o.last?o.rc[i]+o.r[i]:null)}
+  return o;
+}
+function filt(){const g={sat:$('fs').value,keg:$('fk').value,sd:$('fd').value,jb:$('fj').value};
+  return ROWS.filter(x=>Object.keys(g).every(k=>!g[k]||x[k]===g[k]))}
+function render(){
+  const rs=filt(),A=agg(rs),n=PER.length,L=A.last+1,rl=A.last>=0?A.rc[L]:null;
+  $('kpi').innerHTML=[
+    ['Pagu total',fm(A.pagu),fmt(A.pagu)],
+    ['Realisasi s.d. 30 Sep',fm(A.base),pc(A.base,A.pagu).toFixed(1)+'% dari pagu'],
+    ['Proyeksi s.d. 31 Des',fm(A.pc[n]),pc(A.pc[n],A.pagu).toFixed(1)+'% dari pagu'],
+    ['Realisasi terkini',rl==null?'-':fm(rl),rl==null?'Belum ada data periode':pc(rl,A.pagu).toFixed(1)+'% | s.d. '+PER[A.last].l],
+    ['Capaian vs proyeksi',rl==null?'-':pc(rl,A.pc[L]).toFixed(1)+'%','Pada periode terakhir terisi'],
+    ['Potensi tidak terserap',fm(A.pagu-A.pc[n]),pc(A.pagu-A.pc[n],A.pagu).toFixed(1)+'% dari pagu']
+  ].map(k=>'<div><small>'+k[0]+'</small><b>'+k[1]+'</b><span>'+k[2]+'</span></div>').join('');
+  chart(A);periodTable(A);groupTable(rs);
+}
+function chart(A){
+  const n=PER.length,W=900,H=300,m={l:46,r:16,t:12,b:62},w=W-m.l-m.r,h=H-m.t-m.b;
+  const ps=A.pc.map(v=>pc(v,A.pagu)),rr=A.rc.map(v=>v==null?null:pc(v,A.pagu));
+  const mx=Math.max(10,Math.ceil(Math.max(...ps,...rr.filter(v=>v!=null))/10)*10);
+  const X=i=>m.l+i*w/n,Y=v=>m.t+h-v/mx*h;let s='';
+  for(let g=0;g<=5;g++){const v=mx*g/5;s+='<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+Y(v)+'" y2="'+Y(v)+'" stroke="var(--line)"/><text x="'+(m.l-6)+'" y="'+(Y(v)+4)+'" text-anchor="end" font-size="11" fill="var(--mut)">'+v.toFixed(0)+'%</text>'}
+  ['30 Sep'].concat(PER.map(p=>p.l)).forEach((t,i)=>{s+='<text transform="translate('+X(i)+','+(H-m.b+14)+') rotate(-35)" text-anchor="end" font-size="10" fill="var(--mut)">'+t+'</text>'});
+  const line=(a,c)=>'<polyline fill="none" stroke="'+c+'" stroke-width="2.5" points="'+a.map((v,i)=>v==null?null:X(i)+','+Y(v)).filter(Boolean).join(' ')+'"/>'+
+    a.map((v,i)=>v==null?'':'<circle cx="'+X(i)+'" cy="'+Y(v)+'" r="3" fill="'+c+'"><title>'+(i?PER[i-1].l:'30 Sep')+': '+v.toFixed(1)+'%</title></circle>').join('');
+  $('ch').innerHTML=s+line(ps,'var(--pri)')+line(rr,'var(--acc)');
+}
+function stat(cap){return cap==null?['na','-']:cap>=TH_OK?['ok','Sesuai']:cap>=TH_WN?['wn','Waspada']:['bad','Tertinggal']}
+function periodTable(A){
+  const today=new Date().toISOString().slice(0,10),cur=PER.findIndex(p=>p.e>=today);
+  let h='<tr><th>Periode</th><th>Proyeksi periode</th><th>Proyeksi kumulatif</th><th>% pagu</th><th>Realisasi periode</th><th>Realisasi kumulatif</th><th>% pagu</th><th>Deviasi kumulatif</th><th>Status</th></tr>';
+  PER.forEach((p,i)=>{const has=A.has[i],rc=i<=A.last?A.rc[i+1]:null,cap=rc==null?null:pc(rc,A.pc[i+1]),st=stat(cap);
+    h+='<tr'+(i===cur?' class="now"':'')+'><td>'+p.l+'</td><td>'+fmt(A.p[i])+'</td><td>'+fmt(A.pc[i+1])+'</td><td>'+pc(A.pc[i+1],A.pagu).toFixed(1)+'</td><td>'+(has?fmt(A.r[i]):'-')+'</td><td>'+(rc==null?'-':fmt(rc))+'</td><td>'+(rc==null?'-':pc(rc,A.pagu).toFixed(1))+'</td><td>'+(rc==null?'-':fmt(rc-A.pc[i+1]))+'</td><td><span class="b '+st[0]+'">'+st[1]+'</span></td></tr>'});
+  $('tp').innerHTML=h;
+}
+function groupTable(rs){
+  const k=$('gb').value,G={};rs.forEach(x=>(G[x[k]]=G[x[k]]||[]).push(x));
+  const n=PER.length,rows=Object.keys(G).map(v=>({v,a:agg(G[v])})).sort((x,y)=>y.a.pagu-x.a.pagu);
+  $('tb').innerHTML='<tr><th>'+$('gb').selectedOptions[0].text+'</th><th>Pagu</th><th>Real. 30 Sep (%)</th><th>Proyeksi 31 Des (%)</th><th>Real. terkini (%)</th><th>Deviasi (Rp)</th><th>Capaian vs proyeksi</th><th>Status</th></tr>'+
+  rows.map(({v,a})=>{const L=a.last+1,rl=a.last>=0?a.rc[L]:null,cap=rl==null?null:pc(rl,a.pc[L]),st=stat(cap);
+    return '<tr><td class="l" data-v="'+v+'">'+lab(k,v)+'</td><td>'+fm(a.pagu)+'</td><td>'+pc(a.base,a.pagu).toFixed(1)+'</td><td>'+pc(a.pc[n],a.pagu).toFixed(1)+'</td><td>'+(rl==null?'-':pc(rl,a.pagu).toFixed(1))+'</td><td>'+(rl==null?'-':fmt(rl-a.pc[L]))+'</td><td>'+(cap==null?'-':cap.toFixed(1)+'%')+'</td><td><span class="b '+st[0]+'">'+st[1]+'</span></td></tr>'}).join('');
+}
+$('tb').onclick=e=>{const c=e.target.closest('td[data-v]');if(!c)return;
+  $({sat:'fs',keg:'fk',sd:'fd',jb:'fj'}[$('gb').value]).value=c.dataset.v;render()};
+['fs','fk','fd','fj','gb'].forEach(i=>$(i).onchange=render);
+$('rs').onclick=()=>{['fs','fk','fd','fj'].forEach(i=>$(i).value='');render()};
+$('rf').onclick=()=>load(true);
+load(false);setInterval(()=>load(false),AUTO_REFRESH_MS);
+</script></body></html>
