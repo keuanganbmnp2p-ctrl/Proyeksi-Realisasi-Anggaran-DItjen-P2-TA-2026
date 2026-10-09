@@ -10,7 +10,7 @@ header{background:var(--pri);color:#fff;padding:16px 20px}h1{margin:0;font-size:
 main{max-width:1200px;margin:0 auto;padding:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.row label{font-size:11px;color:var(--mut);display:flex;flex-direction:column;gap:3px;flex:1;min-width:150px}
-select,button{font:inherit;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--tx)}button{cursor:pointer;background:var(--pri);color:#fff;border:0}
+select,button,input{font:inherit;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--tx)}button{cursor:pointer;background:var(--pri);color:#fff;border:0}
 .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px}
 .kpi div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.kpi small{color:var(--mut);font-size:11px}.kpi b{display:block;font-size:20px;margin:4px 0}.kpi span{font-size:11px;color:var(--mut)}
 .tw{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:760px}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
@@ -38,6 +38,15 @@ th{font-size:11px;color:var(--mut)}th:first-child,td:first-child{text-align:left
 <label style="max-width:200px">Tampilan<select id="vw"><option value="sum">Ringkasan</option><option value="wk">Per minggu (periode)</option><option value="mo">Per bulan (Okt-Des)</option></select></label>
 <label style="max-width:230px" id="mtw">Nilai<select id="mt"><option value="proj">Proyeksi per periode</option><option value="real">Realisasi per periode</option><option value="dev">Deviasi (realisasi - proyeksi)</option><option value="projc">Proyeksi kumulatif</option><option value="realc">Realisasi kumulatif</option></select></label>
 <span style="font-size:11px;color:var(--mut)">Klik nama pada tabel untuk memfilter. Tampilan per minggu/bulan dalam Rp juta.</span></div>
+<div class="row" style="margin-bottom:8px">
+<label style="max-width:190px">Cari nama<input id="q" type="search" placeholder="mis. BBKK"></label>
+<label style="max-width:170px">Status<select id="fst"><option value="">Semua status</option><option value="bad">Tertinggal</option><option value="wn">Waspada</option><option value="ok">Sesuai</option><option value="na">Belum ada realisasi</option></select></label>
+<label style="max-width:220px">Filter angka berdasarkan<select id="fmet"><option value="rp">Realisasi terkini (% pagu)</option><option value="pp">Proyeksi 31 Des (% pagu)</option><option value="bp">Real. 30 Sep (% pagu)</option><option value="cap">Capaian vs proyeksi (%)</option></select></label>
+<label style="max-width:90px">Min (%)<input id="fmin" type="number" step="any" placeholder="0"></label>
+<label style="max-width:90px">Maks (%)<input id="fmax" type="number" step="any" placeholder="100"></label>
+<label style="max-width:200px">Urutkan<select id="sor"><option value="pagu">Pagu</option><option value="name">Nama</option><option value="rp">Realisasi terkini (%)</option><option value="pp">Proyeksi 31 Des (%)</option><option value="bp">Real. 30 Sep (%)</option><option value="cap">Capaian vs proyeksi</option><option value="dev">Deviasi (Rp)</option></select></label>
+<label style="max-width:170px">Arah<select id="sdir"><option value="d">Tertinggi dulu</option><option value="a">Terendah dulu</option></select></label>
+<span id="cnt" style="font-size:11px;color:var(--mut)"></span></div>
 <div class="tw"><table id="tb"></table></div></div>
 <p style="font-size:11px;color:var(--mut)">Kumulatif = realisasi s.d. 30 Sep + jumlah periode berjalan. Status (capaian terhadap proyeksi): 100% ke atas Sesuai, 90-99% Waspada, di bawah 90% Tertinggal.</p>
 </main>
@@ -121,7 +130,21 @@ function periodTable(A){
 }
 function groupTable(rs){
   const k=$('gb').value,G={};rs.forEach(x=>(G[x[k]]=G[x[k]]||[]).push(x));
-  const n=PER.length,rows=Object.keys(G).map(v=>({v,a:agg(G[v])})).sort((x,y)=>y.a.pagu-x.a.pagu);
+  const n=PER.length;
+  let rows=Object.keys(G).map(v=>{const a=agg(G[v]),L=a.last+1,rl=a.last>=0?a.rc[L]:null,cap=rl==null?null:pc(rl,a.pc[L]);
+    return {v,a,name:lab(k,v),bp:pc(a.base,a.pagu),pp:pc(a.pc[n],a.pagu),rp:rl==null?null:pc(rl,a.pagu),cap,dev:rl==null?null:rl-a.pc[L],st:stat(cap)[0],rs:G[v]}});
+  const total=rows.length,q=$('q').value.trim().toLowerCase(),fs=$('fst').value,fm_=$('fmet').value,mn=$('fmin').value,mx=$('fmax').value;
+  rows=rows.filter(r=>{
+    if(q&&!r.name.toLowerCase().includes(q))return false;
+    if(fs&&r.st!==fs)return false;
+    if(mn!==''||mx!==''){const x=r[fm_];if(x==null)return false;if(mn!==''&&x<parseFloat(mn))return false;if(mx!==''&&x>parseFloat(mx))return false}
+    return true});
+  const key=$('sor').value,dir=$('sdir').value==='a'?1:-1;
+  rows.sort((x,y)=>{if(key==='name')return dir*-1*x.name.localeCompare(y.name,'id');
+    const xv=key==='pagu'?x.a.pagu:x[key],yv=key==='pagu'?y.a.pagu:y[key];
+    if(xv==null&&yv==null)return 0;if(xv==null)return 1;if(yv==null)return -1;return dir*(xv-yv)});
+  $('cnt').textContent='Menampilkan '+rows.length+' dari '+total;
+  rs=[].concat.apply([],rows.map(r=>r.rs));
   const vw=$('vw').value;$('mtw').style.display=vw==='sum'?'none':'';
   const hd=$('gb').selectedOptions[0].text;
   if(vw!=='sum'){gridTable(rows,agg(rs),hd,vw,$('mt').value,k);return}
@@ -152,8 +175,8 @@ function gridTable(rows,T,hd,vw,mt,k){
 }
 $('tb').onclick=e=>{const c=e.target.closest('td[data-v]');if(!c)return;
   $({sat:'fs',keg:'fk',sd:'fd',jb:'fj'}[$('gb').value]).value=c.dataset.v;render()};
-['fs','fk','fd','fj','gb','vw','mt'].forEach(i=>$(i).onchange=render);
-$('rs').onclick=()=>{['fs','fk','fd','fj'].forEach(i=>$(i).value='');render()};
+['fs','fk','fd','fj','gb','vw','mt','q','fst','fmet','fmin','fmax','sor','sdir'].forEach(i=>{$(i).onchange=render;$(i).oninput=render});
+$('rs').onclick=()=>{['fs','fk','fd','fj','q','fst','fmin','fmax'].forEach(i=>$(i).value='');render()};
 $('rf').onclick=()=>load(true);
 load(false);setInterval(()=>load(false),AUTO_REFRESH_MS);
 </script></body></html>
