@@ -14,7 +14,7 @@ select,button{font:inherit;padding:7px;border:1px solid var(--line);border-radiu
 .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px}
 .kpi div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.kpi small{color:var(--mut);font-size:11px}.kpi b{display:block;font-size:20px;margin:4px 0}.kpi span{font-size:11px;color:var(--mut)}
 .tw{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:760px}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
-th{font-size:11px;color:var(--mut)}th:first-child,td:first-child{text-align:left}td.l{cursor:pointer;color:var(--pri);white-space:normal}tr.now td{background:rgba(232,135,30,.14)}
+th{font-size:11px;color:var(--mut)}th:first-child,td:first-child{text-align:left}td:first-child{position:sticky;left:0;background:var(--card)}tr.tot td{font-weight:bold;border-top:2px solid var(--line)}td.l{cursor:pointer;color:var(--pri);white-space:normal}tr.now td{background:rgba(232,135,30,.14)}
 .b{padding:2px 8px;border-radius:10px;font-size:11px;color:#fff}.ok{background:var(--ok)}.wn{background:var(--wn)}.bad{background:var(--bad)}.na{background:var(--mut)}
 #msg{padding:10px;border-radius:8px;background:#fff6dd;color:#5c4400;margin-bottom:14px;display:none;font-size:12px}
 .lg span{margin-right:14px;font-size:12px}.lg i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:4px}h2{font-size:14px;margin:0 0 8px}
@@ -35,7 +35,9 @@ th{font-size:11px;color:var(--mut)}th:first-child,td:first-child{text-align:left
 <div class="tw"><table id="tp"></table></div></div>
 <div class="card"><div class="row" style="margin-bottom:8px"><label style="max-width:220px">Kelompokkan per<select id="gb">
 <option value="sat">Satker</option><option value="keg">Kegiatan</option><option value="sd">Sumber Dana</option><option value="jb">Jenis Belanja</option></select></label>
-<span style="font-size:11px;color:var(--mut)">Klik nama pada tabel untuk memfilter.</span></div>
+<label style="max-width:200px">Tampilan<select id="vw"><option value="sum">Ringkasan</option><option value="wk">Per minggu (periode)</option><option value="mo">Per bulan (Okt-Des)</option></select></label>
+<label style="max-width:230px" id="mtw">Nilai<select id="mt"><option value="proj">Proyeksi per periode</option><option value="real">Realisasi per periode</option><option value="dev">Deviasi (realisasi - proyeksi)</option><option value="projc">Proyeksi kumulatif</option><option value="realc">Realisasi kumulatif</option></select></label>
+<span style="font-size:11px;color:var(--mut)">Klik nama pada tabel untuk memfilter. Tampilan per minggu/bulan dalam Rp juta.</span></div>
 <div class="tw"><table id="tb"></table></div></div>
 <p style="font-size:11px;color:var(--mut)">Kumulatif = realisasi s.d. 30 Sep + jumlah periode berjalan. Status (capaian terhadap proyeksi): 100% ke atas Sesuai, 90-99% Waspada, di bawah 90% Tertinggal.</p>
 </main>
@@ -120,13 +122,37 @@ function periodTable(A){
 function groupTable(rs){
   const k=$('gb').value,G={};rs.forEach(x=>(G[x[k]]=G[x[k]]||[]).push(x));
   const n=PER.length,rows=Object.keys(G).map(v=>({v,a:agg(G[v])})).sort((x,y)=>y.a.pagu-x.a.pagu);
-  $('tb').innerHTML='<tr><th>'+$('gb').selectedOptions[0].text+'</th><th>Pagu</th><th>Real. 30 Sep (%)</th><th>Proyeksi 31 Des (%)</th><th>Real. terkini (%)</th><th>Deviasi (Rp)</th><th>Capaian vs proyeksi</th><th>Status</th></tr>'+
+  const vw=$('vw').value;$('mtw').style.display=vw==='sum'?'none':'';
+  const hd=$('gb').selectedOptions[0].text;
+  if(vw!=='sum'){gridTable(rows,agg(rs),hd,vw,$('mt').value,k);return}
+  $('tb').innerHTML='<tr><th>'+hd+'</th><th>Pagu</th><th>Real. 30 Sep (%)</th><th>Proyeksi 31 Des (%)</th><th>Real. terkini (%)</th><th>Deviasi (Rp)</th><th>Capaian vs proyeksi</th><th>Status</th></tr>'+
   rows.map(({v,a})=>{const L=a.last+1,rl=a.last>=0?a.rc[L]:null,cap=rl==null?null:pc(rl,a.pc[L]),st=stat(cap);
     return '<tr><td class="l" data-v="'+v+'">'+lab(k,v)+'</td><td>'+fm(a.pagu)+'</td><td>'+pc(a.base,a.pagu).toFixed(1)+'</td><td>'+pc(a.pc[n],a.pagu).toFixed(1)+'</td><td>'+(rl==null?'-':pc(rl,a.pagu).toFixed(1))+'</td><td>'+(rl==null?'-':fmt(rl-a.pc[L]))+'</td><td>'+(cap==null?'-':cap.toFixed(1)+'%')+'</td><td><span class="b '+st[0]+'">'+st[1]+'</span></td></tr>'}).join('');
 }
+const BLN=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+function gridCols(vw){
+  if(vw==='wk')return PER.map((p,i)=>({l:p.l,idx:[i]}));
+  const M={};PER.forEach((p,i)=>{const m=parseInt(p.e.slice(5,7),10)-1;(M[m]=M[m]||{l:BLN[m]+' 2026',idx:[]}).idx.push(i)});
+  return Object.keys(M).sort((x,y)=>x-y).map(m=>M[m]);
+}
+function gval(a,idx,mt){
+  const f=idx.filter(i=>a.has[i]),sum=(arr,key)=>arr.reduce((t,i)=>t+a[key][i],0);
+  if(mt==='proj')return sum(idx,'p');
+  if(mt==='real')return f.length?sum(f,'r'):null;
+  if(mt==='dev')return f.length?sum(f,'r')-sum(f,'p'):null;
+  if(mt==='projc')return a.pc[idx[idx.length-1]+1];
+  const ok=idx.filter(i=>i<=a.last);return ok.length?a.rc[ok[ok.length-1]+1]:null;
+}
+function gridTable(rows,T,hd,vw,mt,k){
+  const cols=gridCols(vw),all=PER.map((_,i)=>i),J=v=>v==null?'-':fmt(v/1e6);
+  const tl={proj:'Total Okt-Des',real:'Total terisi',dev:'Total deviasi',projc:'s.d. 31 Des',realc:'Terkini'}[mt];
+  const line=(a,label,v,cls)=>'<tr'+(cls?' class="'+cls+'"':'')+'><td'+(v!=null?' class="l" data-v="'+v+'"':'')+'>'+label+'</td>'+cols.map(c=>'<td>'+J(gval(a,c.idx,mt))+'</td>').join('')+'<td><b>'+J(gval(a,all,mt))+'</b></td></tr>';
+  $('tb').innerHTML='<tr><th>'+hd+' (Rp juta)</th>'+cols.map(c=>'<th>'+c.l+'</th>').join('')+'<th>'+tl+'</th></tr>'+
+    rows.map(r=>line(r.a,lab(k,r.v),r.v)).join('')+line(T,'TOTAL',null,'tot');
+}
 $('tb').onclick=e=>{const c=e.target.closest('td[data-v]');if(!c)return;
   $({sat:'fs',keg:'fk',sd:'fd',jb:'fj'}[$('gb').value]).value=c.dataset.v;render()};
-['fs','fk','fd','fj','gb'].forEach(i=>$(i).onchange=render);
+['fs','fk','fd','fj','gb','vw','mt'].forEach(i=>$(i).onchange=render);
 $('rs').onclick=()=>{['fs','fk','fd','fj'].forEach(i=>$(i).value='');render()};
 $('rf').onclick=()=>load(true);
 load(false);setInterval(()=>load(false),AUTO_REFRESH_MS);
